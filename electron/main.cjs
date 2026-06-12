@@ -16,7 +16,10 @@ function startServer() {
 
     const serverEntry = path.join(serverDir, 'index.js');
 
-    serverProcess = spawn(process.execPath, [serverEntry], {
+    // 打包后用系统 Node.js（避免 node-pty ABI 问题），开发用 Electron 内建
+    const nodeExe = app.isPackaged ? 'node' : process.execPath;
+
+    serverProcess = spawn(nodeExe, [serverEntry], {
       cwd: serverDir,
       env: { ...process.env, PORT: String(PORT) },
       stdio: ['pipe', 'pipe', 'pipe'],

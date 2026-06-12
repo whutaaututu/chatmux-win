@@ -78,6 +78,9 @@ coverage/
 tmp/
 temp/
 
+# Electron build output
+release/
+
 # User runtime data
 server/sessions.json
 server/bookmarks.json

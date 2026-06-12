@@ -9,7 +9,7 @@
     "client": "cd client && npx vite --host",
     "electron": "electron .",
     "electron:dev": "cd client && npx vite build && cd .. && electron .",
-    "electron:build": "cd client && npx vite build && cd .. && electron-builder --win portable",
+    "electron:build": "cd client && npx vite build && cd .. && electron-builder --win portable --config.win.signAndEditExecutable=false",
     "postinstall": ""
   },
   "dependencies": {
@@ -26,6 +26,7 @@
   "build": {
     "appId": "com.chatmux.app",
     "productName": "ChatMux",
+    "npmRebuild": false,
     "asar": true,
     "asarUnpack": [
       "server/**"
@@ -39,7 +40,7 @@
       "output": "release"
     },
     "win": {
-      "target": "portable",
+      "target": "dir",
       "icon": null
     },
     "extraResources": []
