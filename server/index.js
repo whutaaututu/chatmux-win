@@ -339,10 +339,10 @@ app.post("/api/files/mkdir", async (req, res) => {
   }
 });
 
-// REST: 压缩文件
+// REST: 压缩文件（仅支持 tar.gz）
 app.post("/api/files/compress", async (req, res) => {
   try {
-    const { files, format = "tar.gz", outputPath } = req.body;
+    const { files, outputPath } = req.body;
 
     if (!files || !Array.isArray(files) || files.length === 0) {
       return res.status(400).json({ error: "请选择要压缩的文件" });
@@ -354,10 +354,6 @@ app.post("/api/files/compress", async (req, res) => {
     // 确保输出目录存在
     const outputDir = dirname(output);
     await mkdir(outputDir, { recursive: true });
-
-    if (format !== "tar.gz") {
-      return res.status(400).json({ error: "不支持的压缩格式" });
-    }
 
     await createTarGzArchive(sourceFiles, output);
 

@@ -229,6 +229,11 @@ export default function FileSearch({ searchPath, onClose, onOpenFile, onOpenFold
           <>
             <div style={styles.resultCount}>
               找到 {results.length} 个结果
+              {results.length >= 100 && (
+                <span style={styles.truncationWarning}>
+                  ⚠️ 结果已达上限（100条），可能未完整展示。请缩小搜索范围。
+                </span>
+              )}
             </div>
             {results.map((result, index) => (
               <div
@@ -394,6 +399,15 @@ const styles = {
     position: "sticky",
     top: 0,
     background: "#0d1117",
+    display: "flex",
+    gap: 12,
+    alignItems: "center",
+    flexWrap: "wrap",
+  },
+  truncationWarning: {
+    color: "#e8a230",
+    fontSize: 11,
+    fontWeight: 500,
   },
   resultItem: {
     display: "flex",

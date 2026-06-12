@@ -34,7 +34,6 @@ function isPreviewable(fileName) {
     "jpg", "jpeg", "png", "gif", "svg", "webp", "bmp", "ico",
     "mp4", "webm", "mov", "avi", "mkv",
     "mp3", "wav", "ogg", "aac", "flac", "m4a",
-    "pdf",
   ]);
   const ext = fileName.split(".").pop()?.toLowerCase();
   return previewExts.has(ext);
@@ -198,12 +197,13 @@ export default function FileExplorer({ sessionId, initialPath, onOpenTerminal, o
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  // 路径拼接辅助函数（避免双斜杠）
+  // 路径拼接（处理 Windows 反斜杠）
   const joinPath = (base, name) => {
-    if (base.endsWith("/")) {
+    const sep = base.includes("\\") ? "\\" : "/";
+    if (base.endsWith("/") || base.endsWith("\\")) {
       return base + name;
     }
-    return base + "/" + name;
+    return base + sep + name;
   };
 
   // 进入子目录

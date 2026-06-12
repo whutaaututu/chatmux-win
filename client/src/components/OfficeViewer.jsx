@@ -103,12 +103,20 @@ export default function OfficeViewer({ filePath, fileName, onClose }) {
     }).promise;
   };
 
-  // 加载 Word
+  // 加载 Word (sanitized: strip script/iframe/object/embed/on* handlers)
   const loadWord = async (arrayBuffer) => {
     const result = await mammoth.convertToHtml({ arrayBuffer });
+    const sanitized = result.value
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+      .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, "")
+      .replace(/<object\b[^>]*>[\s\S]*?<\/object>/gi, "")
+      .replace(/<embed\b[^>]*\/?>/gi, "")
+      .replace(/\bon\w+\s*=\s*"[^"]*"/gi, "")
+      .replace(/\bon\w+\s*=\s*'[^']*'/gi, "")
+      .replace(/javascript\s*:/gi, "");
     setContent({
       type: "word",
-      html: result.value,
+      html: sanitized,
       messages: result.messages,
     });
   };

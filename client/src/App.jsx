@@ -103,7 +103,8 @@ export default function App() {
           // 文件夹类型不需要 attach
           const firstSession = restored[0];
           if (firstSession.type !== "folder" && firstSession.command !== "__folder__") {
-            attachSessionRef.current?.(firstId);
+            // 延迟 attach 确保 attachSessionRef 已设置（与 useEffect 赋值存在时序依赖）
+            setTimeout(() => attachSessionRef.current?.(firstId), 0);
           }
         }
       })

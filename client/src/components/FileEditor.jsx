@@ -160,18 +160,6 @@ export default function FileEditor({ filePath, fileName, onClose, onSave }) {
     });
   };
 
-  // 键盘快捷键
-  useEffect(() => {
-    const handler = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-        e.preventDefault();
-        handleSave();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [handleSave]);
-
   // 关闭前检查
   const handleClose = () => {
     if (modified) {
