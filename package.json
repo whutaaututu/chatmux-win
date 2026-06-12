@@ -40,7 +40,7 @@
       "output": "release"
     },
     "win": {
-      "target": "dir",
+      "target": "portable",
       "icon": null
     },
     "extraResources": []
