@@ -54,6 +54,34 @@ function startServer() {
   });
 }
 
+const LOADING_HTML = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { display:flex; flex-direction:column; align-items:center; justify-content:center;
+    height:100vh; background:#0d1117; color:#c9d1d9; font-family:-apple-system,sans-serif; }
+  .logo { font-size:48px; margin-bottom:16px; }
+  h1 { font-size:24px; font-weight:600; margin-bottom:8px; }
+  p { color:#8b949e; font-size:14px; margin-bottom:24px; }
+  .bar { width:200px; height:4px; background:#21262d; border-radius:2px; overflow:hidden; }
+  .fill { height:100%; width:30%; background:#58a6ff; border-radius:2px;
+    animation:slide 1.5s ease-in-out infinite; }
+  @keyframes slide { 0%{transform:translateX(-100%)} 100%{transform:translateX(430%)} }
+</style></head><body>
+  <div class="logo">🖥️</div>
+  <h1>ChatMux</h1>
+  <p>正在启动服务...</p>
+  <div class="bar"><div class="fill"></div></div>
+</body></html>`;
+
+app.whenReady().then(async () => {
+  // 先创建窗口显示启动画面，再启动服务
+  createWindow();
+  await startServer();
+  if (mainWindow) {
+    mainWindow.loadURL(`http://localhost:${PORT}`);
+  }
+});
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -62,31 +90,22 @@ function createWindow() {
     minHeight: 600,
     title: 'ChatMux',
     backgroundColor: '#0d1117',
-    show: false,
+    show: true,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
     },
   });
 
-  mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
-    if (process.env.CHATMUX_DEVTOOLS) mainWindow.webContents.openDevTools();
-  });
+  mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(LOADING_HTML)}`);
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
   });
 
-  mainWindow.loadURL(`http://localhost:${PORT}`);
   mainWindow.on('closed', () => { mainWindow = null; });
 }
-
-app.whenReady().then(async () => {
-  await startServer();
-  createWindow();
-});
 
 app.on('window-all-closed', () => {
   if (serverProcess) { serverProcess.kill(); serverProcess = null; }

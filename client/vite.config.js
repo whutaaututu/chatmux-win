@@ -13,4 +13,16 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          monaco: ["@monaco-editor/react"],
+          xterm: ["@xterm/xterm", "@xterm/addon-fit", "@xterm/addon-search", "@xterm/addon-web-links"],
+          pdf: ["pdfjs-dist"],
+          office: ["mammoth", "xlsx", "pptxviewjs"],
+        },
+      },
+    },
+  },
 });
