@@ -119,7 +119,7 @@ export default function Sidebar({ sessions, activeId, onSelect, onAdd, onDelete,
                   borderBottom: dropTarget.position === "after" ? "2px solid #58a6ff" : undefined,
                 } : undefined}
               >
-                <span style={s.command === "__folder__" ? styles.folderDot : styles.dot(s.alive)} />
+                <span style={s.type === "desktop" ? styles.desktopDot : s.command === "__folder__" ? styles.folderDot : styles.dot(s.alive)} />
                 <div style={styles.itemInfo}>
                   {editingId === s.id ? (
                     <input
@@ -152,7 +152,9 @@ export default function Sidebar({ sessions, activeId, onSelect, onAdd, onDelete,
                     <div style={styles.itemName}>{s.label || s.command}</div>
                   )}
                   <div style={styles.itemMeta}>
-                    {s.type === "folder" || s.command === "__folder__" ? "📁 文件夹" : (s.alive ? "🟢 运行中" : "⚪ 已退出")}
+                    {s.type === "desktop" ? "🖥️ 桌面" :
+                     s.type === "folder" || s.command === "__folder__" ? "📁 文件夹" :
+                     (s.alive ? "🟢 运行中" : "⚪ 已退出")}
                   </div>
                 </div>
                 <div className="actions">
@@ -238,6 +240,10 @@ const styles = {
   folderDot: {
     width: 7, height: 7, borderRadius: "50%",
     background: "#f0883e", flexShrink: 0,
+  },
+  desktopDot: {
+    width: 7, height: 7, borderRadius: "50%",
+    background: "#a371f7", flexShrink: 0,
   },
   itemInfo: { flex: 1, overflow: "hidden" },
   itemName: {

@@ -39,7 +39,8 @@
         "/mnt/data"
       ],
       "historyIndex": 25
-    }
+    },
+    "desktopConfig": null
   },
   {
     "id": "380b380e-561e-4416-9bed-3ea0faa1840e",
@@ -50,7 +51,8 @@
     "type": "terminal",
     "alive": false,
     "createdAt": 1781241840734,
-    "explorerState": null
+    "explorerState": null,
+    "desktopConfig": null
   },
   {
     "id": "f8f6bb8c-b34c-4109-a5b7-1991fb1c29d5",
@@ -61,7 +63,8 @@
     "type": "terminal",
     "alive": false,
     "createdAt": 1781243374770,
-    "explorerState": null
+    "explorerState": null,
+    "desktopConfig": null
   },
   {
     "id": "ca07b2c8-4cb4-4109-baa3-0a07ea99af2f",
@@ -70,9 +73,10 @@
     "cwd": "/mnt/data/codex/chatmux",
     "label": "chatmux",
     "type": "terminal",
-    "alive": true,
+    "alive": false,
     "createdAt": 1781244276107,
-    "explorerState": null
+    "explorerState": null,
+    "desktopConfig": null
   },
   {
     "id": "e205d3f2-7ca6-4e6f-8e8c-620978f78d12",
@@ -83,7 +87,8 @@
     "type": "terminal",
     "alive": false,
     "createdAt": 1781245278976,
-    "explorerState": null
+    "explorerState": null,
+    "desktopConfig": null
   },
   {
     "id": "79c54939-b5c7-4f5b-a396-6ef956fb463d",
@@ -109,17 +114,34 @@
         "/home/user/jsfz/rtp/rtp_desktop_color_cube_sorting_franka_emika_panda_basic_v1_0_3"
       ],
       "historyIndex": 9
-    }
+    },
+    "desktopConfig": null
   },
   {
     "id": "0c17ec95-f26b-453c-b5bd-9dd71d4c82b3",
     "command": "bash",
     "args": [],
     "cwd": "/mnt/data/code/rays-mujoco",
-    "label": "具身",
+    "label": "具身仿真",
     "type": "terminal",
     "alive": true,
     "createdAt": 1781318173692,
-    "explorerState": null
+    "explorerState": null,
+    "desktopConfig": null
+  },
+  {
+    "id": "b79065b6-130f-4729-8051-a09c5d645270",
+    "command": "__desktop__",
+    "args": [],
+    "cwd": "/home/user",
+    "label": "远程桌面",
+    "type": "desktop",
+    "alive": true,
+    "createdAt": 1781517574253,
+    "explorerState": null,
+    "desktopConfig": {
+      "width": 1280,
+      "height": 800
+    }
   }
 ]

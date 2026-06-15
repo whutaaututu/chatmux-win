@@ -104,6 +104,20 @@ export default function App() {
               ws: null,
             };
           }
+          // 桌面类型
+          if (s.type === "desktop" || s.command === "__desktop__") {
+            return {
+              id: s.id,
+              command: "__desktop__",
+              label: s.label || "远程桌面",
+              args: [],
+              cwd: s.cwd,
+              type: "desktop",
+              group: groups[s.id] || "",
+              alive: s.alive || false,
+              ws: null,
+            };
+          }
           // 终端类型
           return {
             id: s.id,
@@ -179,8 +193,8 @@ export default function App() {
     activeIdRef.current = id;
     setSidebarOpen(false);
     const s = sessionsRef.current.find((x) => x.id === id);
-    // 文件夹类型不需要 attach
-    if (s && s.type !== "folder" && s.command !== "__folder__") {
+    // 文件夹和桌面类型不需要 attach
+    if (s && s.type !== "folder" && s.type !== "desktop" && s.command !== "__folder__") {
       // 如果没有 WebSocket 连接，或者连接已关闭，重新连接
       const ws = wsMapRef.current.get(id);
       if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -217,6 +231,44 @@ export default function App() {
   }, [activeId, attachSession]);
 
   const handleAdd = useCallback((command, args = [], cwd = null) => {
+    // 处理桌面类型
+    if (command === "__desktop__") {
+      const params = new URLSearchParams({
+        action: "create",
+        sessionType: "desktop",
+        command: "__desktop__",
+        width: "1280",
+        height: "800",
+      });
+      const ws = new WebSocket(`${WS_BASE()}?${params}`);
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === "created") {
+            setSessions((prev) => [...prev, {
+              id: msg.sessionId,
+              command: "__desktop__",
+              label: "远程桌面",
+              args: [],
+              cwd: "~",
+              type: "desktop",
+              group: "",
+              alive: true,
+              ws: null,
+            }]);
+            setActiveId(msg.sessionId);
+            activeIdRef.current = msg.sessionId;
+            setShowAdd(false);
+            setShowPalette(false);
+            setSidebarOpen(false);
+            ws.close();
+          }
+        } catch {}
+      };
+      ws.onclose = () => {};
+      return;
+    }
+
     // 处理文件夹类型 - 通过服务器 API 创建以实现多端同步
     if (command === "__folder__") {
       const folderPath = cwd || "~";
@@ -302,6 +354,17 @@ export default function App() {
     const ws = wsMapRef.current.get(id);
     if (ws) { ws.close(); wsMapRef.current.delete(id); }
     writerMapRef.current.delete(id);
+
+    // 桌面会话需要停止 VNC
+    const session = sessionsRef.current.find(s => s.id === id);
+    if (session?.type === "desktop") {
+      fetch("/api/desktop/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: id }),
+      }).catch(() => {});
+    }
+
     fetch(`/api/sessions/${id}`, { method: "DELETE" }).catch(() => {});
     setSessions((prev) => prev.filter((s) => s.id !== id));
     setActiveId((current) => {

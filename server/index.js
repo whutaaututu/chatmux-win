@@ -1,6 +1,7 @@
 import express from "express";
 import { WebSocketServer } from "ws";
 import { createServer } from "http";
+import net from "net";
 import { fileURLToPath } from "url";
 import { basename, dirname, join, relative, resolve } from "path";
 import { readdir, stat, unlink, rename, copyFile, readFile, writeFile, mkdir } from "fs/promises";
@@ -13,6 +14,7 @@ import os from "os";
 import multer from "multer";
 import {
   createSession,
+  createDesktopSession,
   getSession,
   getSessionBuffer,
   getAllSessions,
@@ -27,6 +29,12 @@ import {
 } from "./pty-manager.js";
 import { transferManager, fileClipboard, deleteFiles } from "./file-ops.js";
 import aiRouter from "./ai-proxy.js";
+import {
+  startDesktop,
+  stopDesktop,
+  getDesktop,
+  checkDependencies as checkVncDeps,
+} from "./vnc-manager.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isWindows = process.platform === "win32";
@@ -89,7 +97,7 @@ function bindPty(ws, session) {
 
 const app = express();
 const server = createServer(app);
-const wss = new WebSocketServer({ server, path: "/ws" });
+const wss = new WebSocketServer({ noServer: true });
 
 app.use(express.static(join(__dirname, "../client/dist")));
 app.use(express.json());
@@ -316,6 +324,47 @@ app.get("/api/clipboard", (req, res) => {
 // REST: 获取传输任务列表
 app.get("/api/transfers", (req, res) => {
   res.json(transferManager.getAllTasks());
+});
+
+// REST: 检查 VNC 依赖
+app.get("/api/desktop/check", async (req, res) => {
+  try {
+    const deps = await checkVncDeps();
+    res.json(deps);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// REST: 启动桌面会话（手动触发）
+app.post("/api/desktop/start", async (req, res) => {
+  try {
+    const { sessionId } = req.body;
+    const session = getSession(sessionId);
+    if (!session) return res.status(404).json({ error: "会话不存在" });
+    if (session.type !== "desktop") return res.status(400).json({ error: "非桌面会话" });
+
+    const config = session.desktopConfig || { width: 1280, height: 800 };
+    const result = await startDesktop(sessionId, config);
+
+    session.alive = true;
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// REST: 停止桌面会话
+app.post("/api/desktop/stop", (req, res) => {
+  try {
+    const { sessionId } = req.body;
+    stopDesktop(sessionId);
+    const session = getSession(sessionId);
+    if (session) session.alive = false;
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 
@@ -574,6 +623,76 @@ app.put("/api/file-content", async (req, res) => {
   }
 });
 
+// VNC WebSocket 代理
+const vncWss = new WebSocketServer({ noServer: true });
+
+vncWss.on("connection", (ws, req) => {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const sessionId = url.searchParams.get("sessionId");
+
+  const desktop = getDesktop(sessionId);
+  if (!desktop) {
+    ws.send(JSON.stringify({ type: "error", message: "桌面会话未启动" }));
+    ws.close();
+    return;
+  }
+
+  // 连接到 VNC TCP 端口
+  const tcpSocket = new net.Socket();
+  tcpSocket.connect(desktop.vncPort, "127.0.0.1", () => {
+    // WebSocket <-> TCP 双向代理
+    ws.on("message", (data) => {
+      try {
+        tcpSocket.write(data instanceof Buffer ? data : Buffer.from(data));
+      } catch {}
+    });
+
+    tcpSocket.on("data", (data) => {
+      try {
+        if (ws.readyState === ws.OPEN) {
+          ws.send(data);
+        }
+      } catch {}
+    });
+
+    ws.on("close", () => {
+      tcpSocket.destroy();
+    });
+
+    tcpSocket.on("close", () => {
+      if (ws.readyState === ws.OPEN) ws.close();
+    });
+
+    tcpSocket.on("error", (err) => {
+      console.error(`[VNC] TCP 错误 (session ${sessionId}):`, err.message);
+      if (ws.readyState === ws.OPEN) ws.close();
+    });
+  });
+
+  tcpSocket.on("error", (err) => {
+    console.error(`[VNC] TCP 连接失败 (session ${sessionId}):`, err.message);
+    ws.send(JSON.stringify({ type: "error", message: `VNC 连接失败: ${err.message}` }));
+    ws.close();
+  });
+});
+
+// 统一处理 WebSocket 升级请求
+server.on("upgrade", (req, socket, head) => {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+
+  if (url.pathname === "/vnc") {
+    vncWss.handleUpgrade(req, socket, head, (ws) => {
+      vncWss.emit("connection", ws, req);
+    });
+  } else if (url.pathname === "/ws") {
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit("connection", ws, req);
+    });
+  } else {
+    socket.destroy();
+  }
+});
+
 // WebSocket
 wss.on("connection", (ws, req) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
@@ -582,6 +701,26 @@ wss.on("connection", (ws, req) => {
 
   if (action === "create") {
     const command = url.searchParams.get("command") || defaultShell;
+    const sessionType = url.searchParams.get("sessionType") || "terminal";
+
+    // 创建桌面会话
+    if (sessionType === "desktop") {
+      const width = parseInt(url.searchParams.get("width")) || 1280;
+      const height = parseInt(url.searchParams.get("height")) || 800;
+
+      const session = createDesktopSession({ width, height });
+
+      ws.send(JSON.stringify({
+        type: "created",
+        sessionId: session.id,
+        command: "__desktop__",
+        sessionType: "desktop",
+      }));
+
+      ws.on("close", () => {});
+      return;
+    }
+
     const args = (url.searchParams.get("args") || "").split(",").filter(Boolean);
     const cols = parseInt(url.searchParams.get("cols")) || 80;
     const rows = parseInt(url.searchParams.get("rows")) || 24;
@@ -616,6 +755,19 @@ wss.on("connection", (ws, req) => {
     if (!session) {
       ws.send(JSON.stringify({ type: "error", message: "Session not found" }));
       ws.close();
+      return;
+    }
+
+    // 桌面会话 attach
+    if (session.type === "desktop") {
+      ws.send(JSON.stringify({
+        type: "attached",
+        sessionId: session.id,
+        command: "__desktop__",
+        sessionType: "desktop",
+        alive: session.alive,
+      }));
+      ws.on("close", () => {});
       return;
     }
 

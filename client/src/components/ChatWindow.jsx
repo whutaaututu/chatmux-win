@@ -6,6 +6,7 @@ import "@xterm/xterm/css/xterm.css";
 import SearchBar from "./SearchBar";
 import MobileKeys from "./MobileKeys";
 import FileExplorer from "./FileExplorer";
+import DesktopView from "./DesktopView";
 
 export default function ChatWindow({
   sessions,
@@ -221,18 +222,24 @@ export default function ChatWindow({
 
       {!mobile && (
         <div style={styles.header}>
-          <span style={activeSession.type === "folder" || activeSession.command === "__folder__" ? styles.folderDot : styles.dot(activeSession.alive)} />
+          <span style={
+            activeSession.type === "desktop" ? styles.desktopDot :
+            activeSession.type === "folder" || activeSession.command === "__folder__" ? styles.folderDot :
+            styles.dot(activeSession.alive)
+          } />
           <span style={styles.name}>{activeSession.label || activeSession.command}</span>
           <span style={styles.status}>
-            {activeSession.type === "folder" || activeSession.command === "__folder__" ? "文件夹" : (activeSession.alive ? "运行中" : "已退出")}
+            {activeSession.type === "desktop" ? "桌面" :
+             activeSession.type === "folder" || activeSession.command === "__folder__" ? "文件夹" :
+             (activeSession.alive ? "运行中" : "已退出")}
           </span>
-          {!activeSession.alive && activeSession.type !== "folder" && activeSession.command !== "__folder__" && (
+          {!activeSession.alive && activeSession.type !== "folder" && activeSession.type !== "desktop" && activeSession.command !== "__folder__" && (
             <button style={styles.reconnectBtn} onClick={() => onReconnect?.(activeSession.id)}>
               🔄 重连
             </button>
           )}
           <div style={{ flex: 1 }} />
-          {onToggleAI && (
+          {onToggleAI && activeSession.type !== "desktop" && (
             <button
               style={{ ...styles.reconnectBtn, ...(showAI ? { background: "#1f6feb33", color: "#58a6ff" } : {}) }}
               onClick={onToggleAI}
@@ -254,7 +261,25 @@ export default function ChatWindow({
 
       <div style={styles.terminalsWrapper}>
         {sessions.map((s) => (
-          s.command === "__folder__" ? (
+          s.type === "desktop" ? (
+            <div
+              key={s.id}
+              style={{
+                flex: 1,
+                display: s.id === activeId ? "flex" : "none",
+                flexDirection: "column",
+                overflow: "hidden",
+              }}
+            >
+              <DesktopView
+                sessionId={s.id}
+                alive={s.alive}
+                onStatusChange={(status) => {
+                  // 状态变化可以在这里处理
+                }}
+              />
+            </div>
+          ) : s.command === "__folder__" ? (
             <div
               key={s.id}
               style={{
@@ -535,6 +560,9 @@ const styles = {
   }),
   folderDot: {
     width: 7, height: 7, borderRadius: "50%", background: "#f0883e",
+  },
+  desktopDot: {
+    width: 7, height: 7, borderRadius: "50%", background: "#a371f7",
   },
   name: { fontWeight: 600, color: "#c9d1d9", fontSize: 13 },
   status: { fontSize: 11, color: "#8b949e", marginLeft: "auto" },

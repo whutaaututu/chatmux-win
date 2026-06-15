@@ -3,11 +3,18 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  optimizeDeps: {
+    exclude: ["@novnc/novnc"],
+  },
   server: {
     port: 5173,
     proxy: {
       "/api": "http://localhost:9910",
       "/ws": {
+        target: "ws://localhost:9910",
+        ws: true,
+      },
+      "/vnc": {
         target: "ws://localhost:9910",
         ws: true,
       },
