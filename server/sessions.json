@@ -9,13 +9,36 @@
     "alive": true,
     "createdAt": 1781170536117,
     "explorerState": {
-      "currentPath": "/home/user/documents",
+      "currentPath": "/mnt/data",
       "history": [
         "/home/user",
-        "/home/user/documents",
-        "/home/user/documents/Kimi_Agent_梅花易数全栈开发"
+        "/home",
+        "/",
+        "/boot",
+        "/",
+        "/",
+        "/mnt",
+        "/mnt/data",
+        "/mnt/data/jsfz-data",
+        "/mnt/data/jsfz-data/RaysTwins",
+        "/mnt/data/jsfz-data",
+        "/mnt/data",
+        "/mnt",
+        "/",
+        "/mnt",
+        "/mnt/data",
+        "/mnt/data/jsfz-data",
+        "/mnt/data/jsfz-data/RaysTwins",
+        "/mnt/data/jsfz-data/RaysTwins/Rtps",
+        "/mnt/data/jsfz-data/RaysTwins/Rtps/05家庭住宅办公生活空间",
+        "/mnt/data/jsfz-data/RaysTwins/Rtps/05家庭住宅办公生活空间/厨房取物",
+        "/mnt/data/jsfz-data/RaysTwins/Rtps/05家庭住宅办公生活空间",
+        "/mnt/data/jsfz-data/RaysTwins/Rtps",
+        "/mnt/data/jsfz-data/RaysTwins",
+        "/mnt/data/jsfz-data",
+        "/mnt/data"
       ],
-      "historyIndex": 1
+      "historyIndex": 25
     }
   },
   {
@@ -60,6 +83,43 @@
     "type": "terminal",
     "alive": false,
     "createdAt": 1781245278976,
+    "explorerState": null
+  },
+  {
+    "id": "79c54939-b5c7-4f5b-a396-6ef956fb463d",
+    "command": "__folder__",
+    "args": [],
+    "cwd": "/home/user",
+    "label": "user",
+    "type": "folder",
+    "alive": true,
+    "createdAt": 1781270861855,
+    "explorerState": {
+      "currentPath": "/home/user/jsfz/rtp/rtp_desktop_color_cube_sorting_franka_emika_panda_basic_v1_0_3",
+      "history": [
+        "/home/user",
+        "/home/user/jsfz",
+        "/home/user/jsfz/rtp",
+        "/home/user/jsfz/rtp/rtp_kitchen_home_pick_place_bowl_franka_emika_panda_basic_v2_0_0",
+        "/home/user/jsfz/rtp",
+        "/home/user/jsfz/rtp/rtp_warehouse_storage_region_navigation_unitree_go2_std_v1_1_3",
+        "/home/user/jsfz/rtp",
+        "/home/user/jsfz/rtp/rtp_warehouse_storage_region_navigation_unitree_go2_std_v1_1_3",
+        "/home/user/jsfz/rtp",
+        "/home/user/jsfz/rtp/rtp_desktop_color_cube_sorting_franka_emika_panda_basic_v1_0_3"
+      ],
+      "historyIndex": 9
+    }
+  },
+  {
+    "id": "0c17ec95-f26b-453c-b5bd-9dd71d4c82b3",
+    "command": "bash",
+    "args": [],
+    "cwd": "/mnt/data/code/rays-mujoco",
+    "label": "具身",
+    "type": "terminal",
+    "alive": true,
+    "createdAt": 1781318173692,
     "explorerState": null
   }
 ]

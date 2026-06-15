@@ -215,14 +215,6 @@ export function writeToSession(id, data) {
   }
 }
 
-// 在终端中回显命令和执行结果（不重复执行，仅用于显示）
-export function echoToSession(id, command, result) {
-  const session = sessions.get(id);
-  if (!session || !session.alive || !session.pty) return;
-  // 用 printf 回显命令和输出，不会触发新的命令执行
-  const escaped = (result.stdout || "(无输出)").replace(/\\/g, "\\\\").replace(/'/g, "'\\''");
-  session.pty.write(`printf '\\e[36m> ${command.replace(/'/g, "'\\''")}\\e[0m\\n' && printf '${escaped}\\n'\n`);
-}
 
 export function resizeSession(id, cols, rows) {
   const session = sessions.get(id);

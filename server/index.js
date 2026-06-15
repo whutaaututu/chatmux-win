@@ -24,7 +24,6 @@ import {
   restoreSessions,
   restartSession,
   saveStoreSync,
-  echoToSession,
 } from "./pty-manager.js";
 import { transferManager, fileClipboard, deleteFiles } from "./file-ops.js";
 import aiRouter from "./ai-proxy.js";
@@ -319,15 +318,6 @@ app.get("/api/transfers", (req, res) => {
   res.json(transferManager.getAllTasks());
 });
 
-// REST: 在终端会话中回显命令和结果
-app.post("/api/echo-to-session", (req, res) => {
-  const { sessionId, command, result } = req.body;
-  if (!sessionId || !command || !result) {
-    return res.status(400).json({ error: "缺少参数" });
-  }
-  echoToSession(sessionId, command, result);
-  res.json({ ok: true });
-});
 
 // REST: 重命名文件
 app.post("/api/files/rename", async (req, res) => {

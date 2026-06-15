@@ -174,27 +174,15 @@ export default function AIChat({ onClose, terminalSelection, sendInput, activeId
     return res.json();
   };
 
-  // 执行命令并回显到终端
-  const execAndEcho = async (command) => {
-    // 1. 通过 exec 端点执行命令（获取干净输出）
-    const execRes = await fetch("/api/ai/exec", {
+  // 执行命令（通过 exec 端点，结果在 AI 面板显示）
+  const execCommand = async (command) => {
+    const res = await fetch("/api/ai/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ command }),
     });
-    if (!execRes.ok) throw new Error("命令执行失败");
-    const result = await execRes.json();
-
-    // 2. 将命令和结果回显到终端（用户能在 bash 中看到）
-    if (activeId) {
-      fetch("/api/echo-to-session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: activeId, command, result }),
-      }).catch(() => {});
-    }
-
-    return result;
+    if (!res.ok) throw new Error("命令执行失败");
+    return res.json();
   };
 
   // 发送消息
@@ -295,8 +283,8 @@ export default function AIChat({ onClose, terminalSelection, sendInput, activeId
 
             setStreamContent(`执行中: ${cmd}`);
 
-            // 执行命令并回显到终端
-            const result = await execAndEcho(cmd);
+            // 执行命令
+            const result = await execCommand(cmd);
 
             // 更新命令状态为完成
             setMessages((prev) => {
