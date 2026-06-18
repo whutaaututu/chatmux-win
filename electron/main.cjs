@@ -16,8 +16,10 @@ function startServer() {
 
     const serverEntry = path.join(serverDir, 'index.js');
 
-    // 打包后用系统 Node.js（避免 node-pty ABI 问题），开发用 Electron 内建
-    const nodeExe = app.isPackaged ? 'node' : process.execPath;
+    // 使用 Electron 内建 Node 启动，确保能读取 asar 内的依赖
+    const nodeExe = process.execPath;
+
+    let serverCrashed = false;
 
     serverProcess = spawn(nodeExe, [serverEntry], {
       cwd: serverDir,
@@ -26,29 +28,53 @@ function startServer() {
     });
 
     serverProcess.stdout.on('data', (d) => {
-      if (d.toString().includes('running')) resolve();
+      const text = d.toString();
+      console.log('[ChatMux]', text.trim());
+      if (text.includes('running')) resolve();
     });
 
+    const errBuffer = [];
     serverProcess.stderr.on('data', (d) => {
-      console.error('[ChatMux]', d.toString().trim());
+      const text = d.toString().trim();
+      console.error('[ChatMux]', text);
+      errBuffer.push(text);
     });
 
-    // Poll until server responds
+    serverProcess.on('exit', (code) => {
+      if (code !== 0 && !serverCrashed) {
+        serverCrashed = true;
+        const errMsg = errBuffer.join('\n') || `exit code: ${code}`;
+        console.error('[ChatMux] Server crashed:', errMsg);
+        mainWindow?.loadURL(`data:text/html;charset=utf-8,${
+          encodeURIComponent(`<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+            *{margin:0;padding:0;box-sizing:border-box}
+            body{display:flex;flex-direction:column;align-items:center;justify-content:center;
+              height:100vh;background:#0d1117;color:#c9d1d9;font-family:monospace;padding:40px}
+            h2{color:#f85149;margin-bottom:16px}
+            pre{background:#161b22;padding:16px;border-radius:8px;max-width:600px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.5}
+</style></head><body><h2>Server 启动失败</h2><pre>${errMsg.replace(/</g,'&lt;')}</pre></body></html>`)
+        }`);
+      }
+    });
+
+    // Poll until server responds (fallback if stdout misses "running")
     let attempts = 0;
     const check = setInterval(() => {
       http.get(`http://localhost:${PORT}/api/sessions`, () => {
         clearInterval(check);
         resolve();
       }).on('error', () => {
-        if (++attempts > 40) {
+        if (++attempts > 40 || serverCrashed) {
           clearInterval(check);
-          resolve();
+          if (!serverCrashed) resolve();
         }
       });
     }, 250);
 
     serverProcess.on('error', (err) => {
       console.error('[ChatMux] Failed to start server:', err.message);
+      serverCrashed = true;
+      clearInterval(check);
       resolve();
     });
   });
