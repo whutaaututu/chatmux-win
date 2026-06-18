@@ -1,5 +1,4 @@
-const { app, BrowserWindow, shell } = require('electron');
-const { spawn } = require('child_process');
+const { app, BrowserWindow, shell, utilityProcess } = require('electron');
 const path = require('path');
 const http = require('http');
 
@@ -16,15 +15,15 @@ function startServer() {
 
     const serverEntry = path.join(serverDir, 'index.js');
 
-    // 使用 Electron 内建 Node 启动，确保能读取 asar 内的依赖
-    const nodeExe = process.execPath;
-
     let serverCrashed = false;
+    const errBuffer = [];
 
-    serverProcess = spawn(nodeExe, [serverEntry], {
+    // utilityProcess.fork: Electron 内置方式启动 Node 子进程
+    // 打包后可读取 asar 压缩包内的依赖，开发模式同样适用
+    serverProcess = utilityProcess.fork(serverEntry, [], {
       cwd: serverDir,
       env: { ...process.env, PORT: String(PORT) },
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: 'pipe',
     });
 
     serverProcess.stdout.on('data', (d) => {
@@ -33,7 +32,6 @@ function startServer() {
       if (text.includes('running')) resolve();
     });
 
-    const errBuffer = [];
     serverProcess.stderr.on('data', (d) => {
       const text = d.toString().trim();
       console.error('[ChatMux]', text);
@@ -45,15 +43,15 @@ function startServer() {
         serverCrashed = true;
         const errMsg = errBuffer.join('\n') || `exit code: ${code}`;
         console.error('[ChatMux] Server crashed:', errMsg);
-        mainWindow?.loadURL(`data:text/html;charset=utf-8,${
-          encodeURIComponent(`<!DOCTYPE html><html><head><meta charset="utf-8"><style>
-            *{margin:0;padding:0;box-sizing:border-box}
-            body{display:flex;flex-direction:column;align-items:center;justify-content:center;
-              height:100vh;background:#0d1117;color:#c9d1d9;font-family:monospace;padding:40px}
-            h2{color:#f85149;margin-bottom:16px}
-            pre{background:#161b22;padding:16px;border-radius:8px;max-width:600px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.5}
-</style></head><body><h2>Server 启动失败</h2><pre>${errMsg.replace(/</g,'&lt;')}</pre></body></html>`)
-        }`);
+        const errHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{display:flex;flex-direction:column;align-items:center;justify-content:center;
+height:100vh;background:#0d1117;color:#c9d1d9;font-family:monospace;padding:40px}
+h2{color:#f85149;margin-bottom:16px}
+pre{background:#161b22;padding:16px;border-radius:8px;max-width:700px;overflow-x:auto;
+white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.5}
+</style></head><body><h2>Server 启动失败</h2><pre>${errMsg.replace(/</g,'&lt;')}</pre></body></html>`;
+        mainWindow?.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(errHtml)}`);
       }
     });
 
@@ -70,13 +68,6 @@ function startServer() {
         }
       });
     }, 250);
-
-    serverProcess.on('error', (err) => {
-      console.error('[ChatMux] Failed to start server:', err.message);
-      serverCrashed = true;
-      clearInterval(check);
-      resolve();
-    });
   });
 }
 
@@ -100,7 +91,6 @@ const LOADING_HTML = `<!DOCTYPE html>
 </body></html>`;
 
 app.whenReady().then(async () => {
-  // 先创建窗口显示启动画面，再启动服务
   createWindow();
   await startServer();
   if (mainWindow) {
