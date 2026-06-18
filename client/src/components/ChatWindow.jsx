@@ -6,6 +6,7 @@ import "@xterm/xterm/css/xterm.css";
 import SearchBar from "./SearchBar";
 import MobileKeys from "./MobileKeys";
 import FileExplorer from "./FileExplorer";
+import DesktopView from "./DesktopView";
 
 export default function ChatWindow({
   sessions,
@@ -17,16 +18,20 @@ export default function ChatWindow({
   onAddSession,
   onDeleteSession,
   mobile = false,
+  showAI = false,
+  onToggleAI,
+  onAskAI,
 }) {
   const termsRef = useRef(new Map());
   const [showSearch, setShowSearch] = useState(false);
 
   const activeSession = sessions.find((s) => s.id === activeId);
 
-  // Ctrl+F
+  // Ctrl+F / Ctrl+Shift+C / Ctrl+Shift+V
   useEffect(() => {
     const handler = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key === "f") {
         e.preventDefault();
         setShowSearch(true);
       }
@@ -72,6 +77,33 @@ export default function ChatWindow({
     term.open(container);
     requestAnimationFrame(() => fitAddon.fit());
 
+    // 剪贴板：Ctrl+C 复制选中文本（无选区时发 SIGINT），Ctrl+V 粘贴
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== "keydown") return true;
+      const mod = e.ctrlKey || e.metaKey;
+
+      // Ctrl+C：有选区时复制，无选区时发 SIGINT
+      if (mod && e.key === "c") {
+        if (term.hasSelection()) {
+          navigator.clipboard.writeText(term.getSelection());
+          return false;
+        }
+        return true;
+      }
+
+      // Ctrl+V：读取剪贴板并发送给 PTY
+      if (mod && e.key === "v") {
+        navigator.clipboard.readText().then((text) => {
+          if (text && session.id === activeIdRef.current) {
+            sendInputRef.current(text);
+          }
+        }).catch((err) => console.warn("剪贴板读取失败:", err));
+        return false;
+      }
+
+      return true;
+    });
+
     term.onData((data) => {
       if (session.id === activeIdRef.current) {
         sendInputRef.current(data);
@@ -85,7 +117,7 @@ export default function ChatWindow({
     });
 
     termsRef.current.set(session.id, { term, fitAddon, searchAddon, container });
-    // 存到 DOM 上方便触摸滚动访问
+    // 存到 DOM 上方便触摸滚动和右键菜单访问
     container._chatmux_term = term;
     registerWriter(session.id, (data) => term.write(data));
 
@@ -206,14 +238,30 @@ export default function ChatWindow({
 
       {!mobile && (
         <div style={styles.header}>
-          <span style={activeSession.type === "folder" || activeSession.command === "__folder__" ? styles.folderDot : styles.dot(activeSession.alive)} />
+          <span style={
+            activeSession.type === "desktop" ? styles.desktopDot :
+            activeSession.type === "folder" || activeSession.command === "__folder__" ? styles.folderDot :
+            styles.dot(activeSession.alive)
+          } />
           <span style={styles.name}>{activeSession.label || activeSession.command}</span>
           <span style={styles.status}>
-            {activeSession.type === "folder" || activeSession.command === "__folder__" ? "文件夹" : (activeSession.alive ? "运行中" : "已退出")}
+            {activeSession.type === "desktop" ? "桌面" :
+             activeSession.type === "folder" || activeSession.command === "__folder__" ? "文件夹" :
+             (activeSession.alive ? "运行中" : "已退出")}
           </span>
-          {!activeSession.alive && activeSession.type !== "folder" && activeSession.command !== "__folder__" && (
+          {!activeSession.alive && activeSession.type !== "folder" && activeSession.type !== "desktop" && activeSession.command !== "__folder__" && (
             <button style={styles.reconnectBtn} onClick={() => onReconnect?.(activeSession.id)}>
               🔄 重连
+            </button>
+          )}
+          <div style={{ flex: 1 }} />
+          {onToggleAI && activeSession.type !== "desktop" && (
+            <button
+              style={{ ...styles.reconnectBtn, ...(showAI ? { background: "#1f6feb33", color: "#58a6ff" } : {}) }}
+              onClick={onToggleAI}
+              title="AI 助手"
+            >
+              🤖
             </button>
           )}
         </div>
@@ -229,7 +277,25 @@ export default function ChatWindow({
 
       <div style={styles.terminalsWrapper}>
         {sessions.map((s) => (
-          s.command === "__folder__" ? (
+          s.type === "desktop" ? (
+            <div
+              key={s.id}
+              style={{
+                flex: 1,
+                display: s.id === activeId ? "flex" : "none",
+                flexDirection: "column",
+                overflow: "hidden",
+              }}
+            >
+              <DesktopView
+                sessionId={s.id}
+                alive={s.alive}
+                onStatusChange={(status) => {
+                  // 状态变化可以在这里处理
+                }}
+              />
+            </div>
+          ) : s.command === "__folder__" ? (
             <div
               key={s.id}
               style={{
@@ -243,10 +309,6 @@ export default function ChatWindow({
                 sessionId={s.id}
                 initialPath={s.cwd}
                 onOpenTerminal={handleOpenTerminalFromFolder}
-                onOpenFile={(path, file) => {
-                  // 预留：未来实现文件编辑器
-                  console.log("打开文件:", path, file);
-                }}
                 onClose={() => handleCloseFolder(s.id)}
               />
             </div>
@@ -256,6 +318,7 @@ export default function ChatWindow({
               session={s}
               isActive={s.id === activeId}
               onCreate={createTerminal}
+              onAskAI={onAskAI}
             />
           )
         ))}
@@ -268,24 +331,28 @@ export default function ChatWindow({
   );
 }
 
-function TerminalPanel({ session, isActive, onCreate }) {
+function TerminalPanel({ session, isActive, onCreate, onAskAI }) {
   const containerRef = useRef(null);
   const touchRef = useRef({ startY: 0, lastY: 0, scrolling: false });
   const initialized = useRef(false);
   const cleanupRef = useRef(null);
+  const [ctxMenu, setCtxMenu] = useState(null);
+  const [toast, setToast] = useState(null);
 
+  // 延迟挂载：首次激活时才创建终端，之后保持存活
   useEffect(() => {
-    const createIfReady = () => {
-      if (containerRef.current && !initialized.current) {
-        initialized.current = true;
-        cleanupRef.current = onCreate(session, containerRef.current) || null;
-      }
-    };
+    if (!isActive || initialized.current) return;
 
-    createIfReady();
+    if (containerRef.current) {
+      initialized.current = true;
+      cleanupRef.current = onCreate(session, containerRef.current) || null;
+    }
+  }, [isActive, session.id, onCreate]);
 
-    // 当容器被清空时（比如被清理逻辑删除），重新初始化
-    if (containerRef.current && initialized.current && !containerRef.current.hasChildNodes()) {
+  // 终端重建：容器被清空时重新初始化
+  useEffect(() => {
+    if (!isActive || !initialized.current) return;
+    if (containerRef.current && !containerRef.current.hasChildNodes()) {
       initialized.current = false;
       if (cleanupRef.current) { cleanupRef.current(); cleanupRef.current = null; }
       requestAnimationFrame(() => {
@@ -295,11 +362,15 @@ function TerminalPanel({ session, isActive, onCreate }) {
         }
       });
     }
+  }, [isActive, session.id, onCreate]);
 
+  // 组件卸载时清理终端
+  useEffect(() => {
     return () => {
       if (cleanupRef.current) { cleanupRef.current(); cleanupRef.current = null; }
+      initialized.current = false;
     };
-  }, [session.id, onCreate]);
+  }, [session.id]);
 
   const focusTerminal = () => {
     const textarea = containerRef.current?.querySelector("textarea");
@@ -337,10 +408,74 @@ function TerminalPanel({ session, isActive, onCreate }) {
 
   const handleTouchEnd = () => {
     if (!touchRef.current.scrolling) {
-      // 没有滚动 = 点击，聚焦终端
       focusTerminal();
     }
     touchRef.current.scrolling = false;
+  };
+
+  // 右键菜单
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const onContextMenu = (e) => {
+      e.preventDefault();
+      const term = container._chatmux_term;
+      const sel = term?.hasSelection() ? term.getSelection() : "";
+      setCtxMenu({ x: e.clientX, y: e.clientY, selection: sel });
+    };
+    container.addEventListener("contextmenu", onContextMenu);
+    return () => container.removeEventListener("contextmenu", onContextMenu);
+  }, []);
+
+  // 点击外部关闭菜单
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("keydown", close);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("keydown", close);
+    };
+  }, [ctxMenu]);
+
+  const handleCopy = () => {
+    const sel = ctxMenu?.selection;
+    if (sel) {
+      navigator.clipboard.writeText(sel).catch(() => {});
+    }
+    setCtxMenu(null);
+  };
+
+  const toastTimerRef = useRef(null);
+  const showToast = (msg) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast(msg);
+    toastTimerRef.current = setTimeout(() => setToast(null), 2000);
+  };
+  // 组件卸载时清理 toast 定时器
+  useEffect(() => () => { if (toastTimerRef.current) clearTimeout(toastTimerRef.current); }, []);
+
+  const handlePaste = async () => {
+    setCtxMenu(null);
+    try {
+      let text = "";
+      if (navigator.clipboard?.readText) {
+        text = await navigator.clipboard.readText();
+      }
+      if (text) {
+        const term = containerRef.current?._chatmux_term;
+        if (term) {
+          term.paste(text);
+          showToast("已粘贴 " + text.length + " 字符");
+        }
+      } else {
+        showToast("剪贴板为空");
+      }
+    } catch (err) {
+      console.error("粘贴失败:", err);
+      showToast("粘贴失败: " + err.message);
+    }
   };
 
   return (
@@ -357,8 +492,69 @@ function TerminalPanel({ session, isActive, onCreate }) {
         overflow: "hidden",
         touchAction: "none",
         minHeight: 0,
+        position: "relative",
       }}
-    />
+    >
+      {ctxMenu && (
+        <div
+          style={{
+            position: "fixed",
+            left: ctxMenu.x,
+            top: ctxMenu.y,
+            background: "#2d333b",
+            border: "1px solid #444c56",
+            borderRadius: 6,
+            padding: "4px 0",
+            minWidth: 140,
+            zIndex: 9999,
+            boxShadow: "0 4px 12px rgba(0,0,0,.4)",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <CtxMenuItem label="复制" disabled={!ctxMenu.selection} onClick={handleCopy} />
+          <CtxMenuItem label="粘贴" onClick={handlePaste} />
+          {onAskAI && ctxMenu.selection && (
+            <>
+              <div style={{ height: 1, background: "#444c56", margin: "4px 0" }} />
+              <CtxMenuItem label="🤖 问 AI" onClick={() => { onAskAI(ctxMenu.selection); setCtxMenu(null); }} />
+            </>
+          )}
+        </div>
+      )}
+      {toast && (
+        <div style={{
+          position: "fixed", bottom: 40, left: "50%", transform: "translateX(-50%)",
+          background: "#2d333b", color: "#c9d1d9", padding: "8px 16px",
+          borderRadius: 6, fontSize: 13, zIndex: 10000,
+          boxShadow: "0 4px 12px rgba(0,0,0,.4)",
+          pointerEvents: "none",
+        }}>
+          {toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CtxMenuItem({ label, disabled, onClick }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <div
+      style={{
+        padding: "6px 16px",
+        color: disabled ? "#484f58" : hover ? "#fff" : "#c9d1d9",
+        background: hover && !disabled ? "#316dca" : "transparent",
+        fontSize: 13,
+        cursor: disabled ? "default" : "pointer",
+        userSelect: "none",
+        transition: "background .1s",
+      }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onClick={disabled ? undefined : onClick}
+    >
+      {label}
+    </div>
   );
 }
 
@@ -380,6 +576,9 @@ const styles = {
   }),
   folderDot: {
     width: 7, height: 7, borderRadius: "50%", background: "#f0883e",
+  },
+  desktopDot: {
+    width: 7, height: 7, borderRadius: "50%", background: "#a371f7",
   },
   name: { fontWeight: 600, color: "#c9d1d9", fontSize: 13 },
   status: { fontSize: 11, color: "#8b949e", marginLeft: "auto" },

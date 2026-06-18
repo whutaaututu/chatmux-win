@@ -1,6 +1,7 @@
 import * as pty from "node-pty";
 import { randomUUID } from "crypto";
 import { readFileSync, writeFileSync, existsSync } from "fs";
+import { writeFile } from "fs/promises";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import os from "os";
@@ -12,9 +13,11 @@ const BUFFER_MAX = 1024 * 100; // 每个会话保留最近 100KB 输出
 
 const sessions = new Map();
 
-// ---- 持久化 ----
+// ---- 持久化（防抖异步写入） ----
 
-function saveStore() {
+let saveTimer = null;
+
+function _doSave() {
   const data = [...sessions.values()].map((s) => ({
     id: s.id,
     command: s.command,
@@ -25,6 +28,40 @@ function saveStore() {
     alive: s.alive,
     createdAt: s.createdAt,
     explorerState: s.explorerState || null,
+    desktopConfig: s.desktopConfig || null,
+  }));
+  const json = JSON.stringify(data, null, 2);
+  writeFile(STORE_FILE, json).catch((e) => {
+    console.error("保存会话失败:", e.message);
+  });
+}
+
+function saveStore() {
+  // 合并 50ms 内的多次写入
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    _doSave();
+  }, 50);
+}
+
+// 同步保存（仅用于进程退出等需要确保写入的场景）
+export function saveStoreSync() {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  const data = [...sessions.values()].map((s) => ({
+    id: s.id,
+    command: s.command,
+    args: s.args,
+    cwd: s.cwd,
+    label: s.label,
+    type: s.type || (s.command === "__folder__" ? "folder" : "terminal"),
+    alive: s.alive,
+    createdAt: s.createdAt,
+    explorerState: s.explorerState || null,
+    desktopConfig: s.desktopConfig || null,
   }));
   writeFileSync(STORE_FILE, JSON.stringify(data, null, 2));
 }
@@ -70,6 +107,31 @@ function attachBuffer(session) {
   session.pty.onData((data) => {
     session.buffer.write(data);
   });
+}
+
+// ---- 桌面会话支持 ----
+
+export function createDesktopSession(options = {}) {
+  const id = options.id || randomUUID();
+  const session = {
+    id,
+    command: "__desktop__",
+    args: [],
+    cwd: os.homedir(),
+    label: options.label || "远程桌面",
+    type: "desktop",
+    pty: null,
+    buffer: createBuffer(),
+    createdAt: Date.now(),
+    alive: true,
+    desktopConfig: {
+      width: options.width || 1280,
+      height: options.height || 800,
+    },
+  };
+  sessions.set(id, session);
+  saveStore();
+  return session;
 }
 
 // ---- 核心操作 ----
@@ -180,6 +242,7 @@ export function writeToSession(id, data) {
   }
 }
 
+
 export function resizeSession(id, cols, rows) {
   const session = sessions.get(id);
   if (session && session.alive && session.pty) {
@@ -238,6 +301,26 @@ export function restoreSessions() {
       };
       sessions.set(meta.id, session);
       console.log(`  恢复文件夹: ${folderName} (${meta.cwd})`);
+      continue;
+    }
+
+    // 桌面类型会话（恢复元数据，VNC 需要用户手动重启）
+    if (meta.type === "desktop" || meta.command === "__desktop__") {
+      const session = {
+        id: meta.id,
+        command: "__desktop__",
+        args: [],
+        cwd: meta.cwd || os.homedir(),
+        label: meta.label || "远程桌面",
+        type: "desktop",
+        pty: null,
+        buffer: createBuffer(),
+        createdAt: meta.createdAt || Date.now(),
+        alive: false, // VNC 不会自动恢复
+        desktopConfig: meta.desktopConfig || { width: 1280, height: 800 },
+      };
+      sessions.set(meta.id, session);
+      console.log(`  恢复桌面: ${meta.label || "远程桌面"} — 需要手动启动`);
       continue;
     }
 

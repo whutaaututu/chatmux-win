@@ -40,3 +40,15 @@
   background: rgba(255, 255, 255, 0.1);
   color: #fff;
 }
+
+.sidebar-item[draggable="true"] {
+  cursor: grab;
+}
+
+.sidebar-item[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.sidebar-item.dragging {
+  opacity: 0.4;
+}

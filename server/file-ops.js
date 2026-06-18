@@ -169,17 +169,13 @@ class FileClipboard {
     return this.items;
   }
 
-  // 清空剪贴板
-  clear() {
-    this.items = [];
-  }
 }
 
 export const transferManager = new TransferManager();
 export const fileClipboard = new FileClipboard();
 
 // 删除文件或目录
-export async function deleteFile(filePath) {
+async function deleteFile(filePath) {
   try {
     const fileStat = await stat(filePath);
     if (fileStat.isDirectory()) {

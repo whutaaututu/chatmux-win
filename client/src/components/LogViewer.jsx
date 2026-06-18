@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 
-// ANSI 转义码处理
-const ANSI_REGEX = /\x1b\[([0-9;]*)m/g;
+// ANSI 颜色映射
 const ANSI_COLORS = {
   // 标准颜色
   30: "#000", 31: "#c91b00", 32: "#00c200", 33: "#c7c400",
@@ -10,20 +9,6 @@ const ANSI_COLORS = {
   90: "#676767", 91: "#ff6d67", 92: "#5ff967", 93: "#fefb67",
   94: "#6871ff", 95: "#ff76ff", 96: "#5ffdff", 97: "#fefefe",
 };
-
-// 解析 ANSI 颜色
-function parseAnsiColor(code) {
-  const parts = code.split(";").map(Number);
-  if (parts.length >= 3 && parts[0] === 38 && parts[1] === 2) {
-    // 24-bit 真彩色: 38;2;r;g;b
-    return `rgb(${parts[2]},${parts[3]},${parts[4]})`;
-  }
-  if (parts.length >= 3 && parts[0] === 48 && parts[1] === 2) {
-    // 背景色: 48;2;r;g;b
-    return `rgb(${parts[2]},${parts[3]},${parts[4]})`;
-  }
-  return ANSI_COLORS[parts[0]] || null;
-}
 
 // 清除 ANSI 转义码
 function stripAnsi(text) {
@@ -476,16 +461,6 @@ export default function LogViewer({ filePath, fileName, onClose }) {
     }
 
     return result || escapeHtml(text);
-  };
-
-  // HTML 转义
-  const escapeHtml = (text) => {
-    return text
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
   };
 
   if (loading) {

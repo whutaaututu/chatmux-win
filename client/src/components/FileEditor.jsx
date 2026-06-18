@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Editor from "@monaco-editor/react";
 import { marked } from "marked";
+import DOMPurify from "dompurify";
 
 // 配置 marked
 marked.setOptions({
@@ -92,6 +93,12 @@ export default function FileEditor({ filePath, fileName, onClose, onSave }) {
   const language = getLanguage(fileName);
   const isMd = isMarkdown(fileName);
 
+  // 缓存行数和字节数，避免每次渲染重新计算
+  const { lineCount, byteSize } = useMemo(() => ({
+    lineCount: content.split("\n").length,
+    byteSize: new Blob([content]).size,
+  }), [content]);
+
   // 加载文件内容
   useEffect(() => {
     const loadFile = async () => {
@@ -148,17 +155,45 @@ export default function FileEditor({ filePath, fileName, onClose, onSave }) {
     }
   }, [filePath, onSave]);
 
+  // 用 ref 保持 handleSave 引用最新
+  const handleSaveRef = useRef(handleSave);
+  useEffect(() => { handleSaveRef.current = handleSave; }, [handleSave]);
+
   // 编辑器挂载
-  const handleEditorMount = (editor) => {
+  const handleEditorMount = useCallback((editor) => {
     editorRef.current = editor;
     // 添加保存快捷键
     editor.addAction({
       id: "save",
       label: "保存",
       keybindings: [2048 | 49], // Ctrl+S
-      run: () => handleSave(),
+      run: () => handleSaveRef.current(),
     });
-  };
+  }, []);
+
+  // 键盘快捷键
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault();
+        handleSave();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [handleSave]);
+
+  // 浏览器关闭/刷新保护
+  useEffect(() => {
+    const handler = (e) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    if (modified) {
+      window.addEventListener("beforeunload", handler);
+    }
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [modified]);
 
   // 关闭前检查
   const handleClose = () => {
@@ -235,9 +270,15 @@ export default function FileEditor({ filePath, fileName, onClose, onSave }) {
 
       {/* 编辑器区域 */}
       <div style={styles.editorContainer}>
-        {showPreview && isMd ? (
-          <div className="preview" style={styles.preview} dangerouslySetInnerHTML={{ __html: marked.parse(content || "") }} />
-        ) : (
+        {/* Markdown 预览 — 用 display 控制，避免 Monaco 卸载丢失状态 */}
+        {isMd && (
+          <div
+            className="preview"
+            style={{ ...styles.preview, display: showPreview ? "block" : "none" }}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(marked.parse(content || "")) }}
+          />
+        )}
+        <div style={{ display: showPreview && isMd ? "none" : "flex", flex: 1 }}>
           <Editor
             height="100%"
             language={language}
@@ -257,14 +298,14 @@ export default function FileEditor({ filePath, fileName, onClose, onSave }) {
               bracketPairColorization: { enabled: true },
             }}
           />
-        )}
+        </div>
       </div>
 
       {/* 底部状态栏 */}
       <div style={styles.footer}>
         <span>{language}</span>
-        <span>{content.split("\n").length} 行</span>
-        <span>{new Blob([content]).size} 字节</span>
+        <span>{lineCount} 行</span>
+        <span>{byteSize} 字节</span>
       </div>
     </div>
   );
@@ -387,8 +428,10 @@ const styles = {
   },
 };
 
-// 添加 Markdown 预览样式
+// 添加 Markdown 预览样式（防止 HMR 重复注入）
+if (!document.getElementById("chatmux-md-preview-style")) {
 const mdStyle = document.createElement("style");
+mdStyle.id = "chatmux-md-preview-style";
 mdStyle.textContent = `
   .preview {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
@@ -540,3 +583,4 @@ mdStyle.textContent = `
   }
 `;
 document.head.appendChild(mdStyle);
+}

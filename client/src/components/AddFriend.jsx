@@ -3,6 +3,7 @@ import React, { useState } from "react";
 const PRESETS = [
   { name: "bash", label: "🐚 Bash", desc: "Shell 终端" },
   { name: "folder", label: "📁 文件夹", desc: "浏览文件夹内容" },
+  { name: "desktop", label: "🖥️ 远程桌面", desc: "图形桌面环境 (VNC)" },
 ];
 
 export default function AddFriend({ onAdd, onClose }) {
@@ -34,6 +35,11 @@ export default function AddFriend({ onAdd, onClose }) {
   };
 
   const handlePreset = (name) => {
+    if (name === "desktop") {
+      // 桌面模式：直接创建
+      onAdd("__desktop__");
+      return;
+    }
     if (name === "folder") {
       // 文件夹模式：需要选择目录
       setCommand("__folder__");

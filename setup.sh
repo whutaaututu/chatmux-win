@@ -34,29 +34,44 @@ info "Node.js $(node -v)"
 
 # 2. 检查包管理器
 PKG="npm"
+PKG_INSTALL="$PKG install"
 if command -v pnpm &>/dev/null; then
   PKG="pnpm"
+  PKG_INSTALL="$PKG install"
   info "pnpm $(pnpm -v)"
 elif command -v npm &>/dev/null; then
   info "npm $(npm -v)"
 fi
 
-# 3. 安装后端依赖
+# 支持通过环境变量 CHINA_MIRROR=1 启用国内镜像
+if [ "${CHINA_MIRROR}" = "1" ]; then
+  REGISTRY_OPT="--registry https://registry.npmmirror.com"
+  info "使用国内镜像源"
+else
+  REGISTRY_OPT=""
+fi
+
+# 3. 安装根目录依赖（concurrently 等）
+info "安装根目录依赖..."
+cd "$SCRIPT_DIR"
+$PKG_INSTALL $REGISTRY_OPT
+
+# 4. 安装后端依赖
 info "安装后端依赖..."
 cd "$SCRIPT_DIR/server"
-$PKG install --registry https://registry.npmmirror.com 2>/dev/null || $PKG install
+$PKG_INSTALL $REGISTRY_OPT
 cd "$SCRIPT_DIR"
 
-# 4. 安装前端依赖
+# 5. 安装前端依赖
 info "安装前端依赖..."
 cd "$SCRIPT_DIR/client"
-$PKG install --registry https://registry.npmmirror.com 2>/dev/null || $PKG install
+$PKG_INSTALL $REGISTRY_OPT
 cd "$SCRIPT_DIR"
 
-# 5. 构建前端
+# 6. 构建前端
 info "构建前端..."
 cd "$SCRIPT_DIR/client"
-npx vite build
+$PKG run build
 cd "$SCRIPT_DIR"
 
 echo ""

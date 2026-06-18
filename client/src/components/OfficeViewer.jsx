@@ -141,7 +141,7 @@ export default function OfficeViewer({ filePath, fileName, onClose }) {
   // 加载 PowerPoint
   const loadPowerPoint = async (arrayBuffer) => {
     try {
-      const viewer = new PPTXViewer();
+      const viewer = new PPTXViewer({ slideSizeMode: "fit" });
       await viewer.loadFile(arrayBuffer);
 
       pptxViewerRef.current = viewer;
@@ -160,7 +160,18 @@ export default function OfficeViewer({ filePath, fileName, onClose }) {
     if (!viewer || !canvas) return;
 
     try {
-      await viewer.goToSlide(slideIndex, canvas);
+      // 设置 canvas 尺寸为容器大小
+      const container = containerRef.current;
+      if (container) {
+        const rect = container.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        canvas.style.width = rect.width + "px";
+        canvas.style.height = rect.height + "px";
+      }
+
+      await viewer.renderSlide(slideIndex, canvas, { scale: 1.5, quality: "high" });
     } catch (e) {
       console.error("渲染幻灯片失败:", e);
     }
@@ -320,7 +331,7 @@ export default function OfficeViewer({ filePath, fileName, onClose }) {
         {/* PowerPoint */}
         {content?.type === "powerpoint" && (
           <div style={styles.pptContainer}>
-            <div style={styles.slideWrapper}>
+            <div ref={containerRef} style={styles.slideWrapper}>
               <canvas ref={canvasRef} style={styles.pptCanvas} />
             </div>
             <div style={styles.slideNav}>

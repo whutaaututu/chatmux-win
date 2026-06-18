@@ -81,6 +81,6 @@ temp/
 # Electron build output
 release/
 
-# User runtime data
+# Runtime data (generated at startup)
 server/sessions.json
 server/bookmarks.json

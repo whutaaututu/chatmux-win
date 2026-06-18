@@ -1,11 +1,13 @@
 import React, { useState, useMemo } from "react";
 import "./Sidebar.css";
 
-export default function Sidebar({ sessions, activeId, onSelect, onAdd, onDelete, onRename, onGroupChange }) {
+export default function Sidebar({ sessions, activeId, onSelect, onAdd, onDelete, onRename, onGroupChange, onReorder }) {
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState("");
   const [editingGroup, setEditingGroup] = useState(null);
   const [groupInput, setGroupInput] = useState("");
+  const [dragId, setDragId] = useState(null);
+  const [dropTarget, setDropTarget] = useState(null); // { id, position: "before" | "after" }
 
   const startRename = (id, currentName) => {
     setEditingId(id);
@@ -25,6 +27,55 @@ export default function Sidebar({ sessions, activeId, onSelect, onAdd, onDelete,
   const confirmGroup = (id) => {
     onGroupChange(id, groupInput.trim());
     setEditingGroup(null);
+  };
+
+  // 拖拽排序
+  const handleDragStart = (e, id) => {
+    setDragId(id);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", id);
+  };
+
+  const handleDragOver = (e, id) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const position = e.clientY < midY ? "before" : "after";
+    setDropTarget({ id, position });
+  };
+
+  const handleDragLeave = (e) => {
+    // 只在离开元素时清除，避免子元素触发
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      setDropTarget(null);
+    }
+  };
+
+  const handleDrop = (e, targetId) => {
+    e.preventDefault();
+    const fromId = e.dataTransfer.getData("text/plain");
+    if (fromId && fromId !== targetId && onReorder) {
+      const ids = sessions.map(s => s.id);
+      const fromIdx = ids.indexOf(fromId);
+      const toIdx = ids.indexOf(targetId);
+      if (fromIdx === -1 || toIdx === -1) return;
+
+      // 移除拖拽项
+      ids.splice(fromIdx, 1);
+      // 计算插入位置
+      let insertIdx = ids.indexOf(targetId);
+      if (dropTarget?.position === "after") insertIdx += 1;
+      ids.splice(insertIdx, 0, fromId);
+      onReorder(ids);
+    }
+    setDragId(null);
+    setDropTarget(null);
+  };
+
+  const handleDragEnd = () => {
+    setDragId(null);
+    setDropTarget(null);
   };
 
   // 按分组归类
@@ -55,10 +106,20 @@ export default function Sidebar({ sessions, activeId, onSelect, onAdd, onDelete,
             {items.map((s) => (
               <div
                 key={s.id}
-                className={`sidebar-item ${s.id === activeId ? "active" : ""}`}
+                className={`sidebar-item ${s.id === activeId ? "active" : ""} ${s.id === dragId ? "dragging" : ""}`}
+                draggable
                 onClick={() => onSelect(s.id)}
+                onDragStart={(e) => handleDragStart(e, s.id)}
+                onDragOver={(e) => handleDragOver(e, s.id)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, s.id)}
+                onDragEnd={handleDragEnd}
+                style={dropTarget?.id === s.id ? {
+                  borderTop: dropTarget.position === "before" ? "2px solid #58a6ff" : undefined,
+                  borderBottom: dropTarget.position === "after" ? "2px solid #58a6ff" : undefined,
+                } : undefined}
               >
-                <span style={s.command === "__folder__" ? styles.folderDot : styles.dot(s.alive)} />
+                <span style={s.type === "desktop" ? styles.desktopDot : s.command === "__folder__" ? styles.folderDot : styles.dot(s.alive)} />
                 <div style={styles.itemInfo}>
                   {editingId === s.id ? (
                     <input
@@ -91,7 +152,9 @@ export default function Sidebar({ sessions, activeId, onSelect, onAdd, onDelete,
                     <div style={styles.itemName}>{s.label || s.command}</div>
                   )}
                   <div style={styles.itemMeta}>
-                    {s.type === "folder" || s.command === "__folder__" ? "📁 文件夹" : (s.alive ? "🟢 运行中" : "⚪ 已退出")}
+                    {s.type === "desktop" ? "🖥️ 桌面" :
+                     s.type === "folder" || s.command === "__folder__" ? "📁 文件夹" :
+                     (s.alive ? "🟢 运行中" : "⚪ 已退出")}
                   </div>
                 </div>
                 <div className="actions">
@@ -180,6 +243,10 @@ const styles = {
   folderDot: {
     width: 7, height: 7, borderRadius: "50%",
     background: "#f0883e", flexShrink: 0,
+  },
+  desktopDot: {
+    width: 7, height: 7, borderRadius: "50%",
+    background: "#a371f7", flexShrink: 0,
   },
   itemInfo: { flex: 1, overflow: "hidden" },
   itemName: {

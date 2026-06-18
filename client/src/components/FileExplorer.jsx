@@ -63,6 +63,7 @@ export default function FileExplorer({ sessionId, initialPath, onOpenTerminal, o
   const [selectedFiles, setSelectedFiles] = useState(new Set());
   const [clipboard, setClipboard] = useState([]);
   const [transfers, setTransfers] = useState([]);
+  const [uploads, setUploads] = useState([]); // 客户端上传进度
   const [contextMenu, setContextMenu] = useState(null);
   const [renamingFile, setRenamingFile] = useState(null);
   const [newName, setNewName] = useState("");
@@ -171,19 +172,29 @@ export default function FileExplorer({ sessionId, initialPath, onOpenTerminal, o
   };
 
   // 加载传输任务
-  const loadTransfers = async () => {
+  const loadTransfers = useCallback(async () => {
     try {
       const res = await fetch("/api/transfers");
       const data = await res.json();
-      setTransfers(data.filter(t => t.status !== "completed"));
-    } catch {}
-  };
-
-  // 定期刷新传输进度
-  useEffect(() => {
-    const interval = setInterval(loadTransfers, 1000);
-    return () => clearInterval(interval);
+      const active = data.filter(t => t.status !== "completed");
+      setTransfers(active);
+      return active.length;
+    } catch { return 0; }
   }, []);
+
+  // 按需轮询：有传输任务时 1s，无任务时 10s（低频探测）
+  useEffect(() => {
+    let timer = null;
+    let stopped = false;
+    const poll = async () => {
+      if (stopped) return;
+      const activeCount = await loadTransfers();
+      const interval = activeCount > 0 ? 1000 : 10000;
+      timer = setTimeout(poll, interval);
+    };
+    poll();
+    return () => { stopped = true; clearTimeout(timer); };
+  }, [loadTransfers]);
 
   // 键盘快捷键
   useEffect(() => {
@@ -517,24 +528,77 @@ export default function FileExplorer({ sessionId, initialPath, onOpenTerminal, o
     }
   };
 
-  // 上传文件
-  const handleUpload = async (files) => {
+  // 上传文件（带进度追踪）
+  const handleUpload = (files) => {
+    // 为每个文件创建上传任务
+    const newUploads = Array.from(files).map((file, i) => ({
+      id: `upload_${Date.now()}_${i}`,
+      name: file.name,
+      size: file.size,
+      loaded: 0,
+      status: "uploading", // uploading | done | error
+      file, // 保留 File 引用
+    }));
+
+    setUploads(prev => [...prev, ...newUploads]);
+
+    // 使用单个 XHR 上传所有文件（multipart）
     const formData = new FormData();
     for (const file of files) {
       formData.append("files", file);
     }
-    try {
-      const res = await fetch(`/api/upload?path=${encodeURIComponent(currentPath)}`, {
-        method: "POST",
-        body: formData,
-      });
-      const data = await res.json();
-      if (data.success) {
-        refresh();
+
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `/api/upload?path=${encodeURIComponent(currentPath)}`);
+
+    // 整体进度（按文件大小加权）
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        // 按比例分配每个文件的已传字节
+        const ratio = e.loaded / e.total;
+        setUploads(prev => prev.map(u => {
+          const match = newUploads.find(n => n.id === u.id);
+          if (match) {
+            return { ...u, loaded: Math.floor(u.size * ratio), status: "uploading" };
+          }
+          return u;
+        }));
       }
-    } catch (e) {
-      alert("上传失败: " + e.message);
-    }
+    };
+
+    xhr.onload = () => {
+      if (xhr.status === 200) {
+        // 标记全部完成
+        setUploads(prev => prev.map(u => {
+          const match = newUploads.find(n => n.id === u.id);
+          if (match) return { ...u, loaded: u.size, status: "done" };
+          return u;
+        }));
+        // 2 秒后清除
+        setTimeout(() => {
+          setUploads(prev => prev.filter(u => !newUploads.find(n => n.id === u.id)));
+        }, 2000);
+        refresh();
+      } else {
+        setUploads(prev => prev.map(u => {
+          const match = newUploads.find(n => n.id === u.id);
+          if (match) return { ...u, status: "error" };
+          return u;
+        }));
+        alert("上传失败: HTTP " + xhr.status);
+      }
+    };
+
+    xhr.onerror = () => {
+      setUploads(prev => prev.map(u => {
+        const match = newUploads.find(n => n.id === u.id);
+        if (match) return { ...u, status: "error" };
+        return u;
+      }));
+      alert("上传失败: 网络错误");
+    };
+
+    xhr.send(formData);
   };
 
   // 下载文件
@@ -743,7 +807,7 @@ export default function FileExplorer({ sessionId, initialPath, onOpenTerminal, o
             {compareMode && (
               <div style={styles.compareHint}>
                 📊 对比模式：{compareFirst
-                  ? `已选择 "${compareFirst.name}"，请点击第二个文件`
+                  ? `已选择 "${compareFirst.path}"，请点击第二个文件（可切换目录）`
                   : "请点击第一个文件"
                 }
               </div>
@@ -798,7 +862,10 @@ export default function FileExplorer({ sessionId, initialPath, onOpenTerminal, o
                   ...(selectedFiles.has(entry.name) ? styles.fileRowSelected : {}),
                 }}
                 onClick={(e) => {
-                  if (compareMode && !entry.isDirectory) {
+                  if (compareMode && entry.isDirectory) {
+                    // 对比模式：单击文件夹进入导航
+                    enterDir(entry.name);
+                  } else if (compareMode && !entry.isDirectory) {
                     // 对比模式：选择文件进行对比
                     handleCompare(entry.name);
                   } else if (e.detail === 2) {
@@ -868,7 +935,7 @@ export default function FileExplorer({ sessionId, initialPath, onOpenTerminal, o
       </div>
 
       {/* 传输进度 */}
-      {transfers.length > 0 && (
+      {(transfers.length > 0 || uploads.length > 0) && (
         <div style={styles.transferBar}>
           {transfers.map(task => (
             <div key={task.id} style={styles.transferItem}>
@@ -886,6 +953,26 @@ export default function FileExplorer({ sessionId, initialPath, onOpenTerminal, o
               </div>
               <span style={styles.transferSize}>
                 {formatSize(task.transferred)} / {formatSize(task.totalSize)}
+              </span>
+            </div>
+          ))}
+          {uploads.map(task => (
+            <div key={task.id} style={styles.transferItem}>
+              <span style={styles.transferIcon}>
+                {task.status === "error" ? "❌" : task.status === "done" ? "✅" : "📤"}
+              </span>
+              <span style={styles.transferName}>{task.name}</span>
+              <div style={styles.progressBar}>
+                <div
+                  style={{
+                    ...styles.progressFill,
+                    width: task.size > 0 ? `${(task.loaded / task.size) * 100}%` : "100%",
+                    background: task.status === "error" ? "#f85149" : task.status === "done" ? "#3fb950" : "#58a6ff",
+                  }}
+                />
+              </div>
+              <span style={styles.transferSize}>
+                {task.status === "done" ? formatSize(task.size) : `${formatSize(task.loaded)} / ${formatSize(task.size)}`}
               </span>
             </div>
           ))}
@@ -1446,18 +1533,21 @@ const styles = {
   },
 };
 
-// CSS
-const style = document.createElement("style");
-style.textContent = `
-  @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
-  .file-row:hover {
-    background: rgba(88, 166, 255, 0.1) !important;
-  }
-  input[type="checkbox"] {
-    accent-color: #58a6ff;
-  }
-`;
-document.head.appendChild(style);
+// CSS（防止 HMR 重复注入）
+if (!document.getElementById("chatmux-file-explorer-style")) {
+  const style = document.createElement("style");
+  style.id = "chatmux-file-explorer-style";
+  style.textContent = `
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .file-row:hover {
+      background: rgba(88, 166, 255, 0.1) !important;
+    }
+    input[type="checkbox"] {
+      accent-color: #58a6ff;
+    }
+  `;
+  document.head.appendChild(style);
+}

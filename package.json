@@ -7,6 +7,8 @@
     "dev": "concurrently \"cd server && node index.js\" \"cd client && npx vite --host\"",
     "server": "cd server && node index.js",
     "client": "cd client && npx vite --host",
+    "build": "cd client && npm run build",
+    "setup": "bash setup.sh",
     "electron": "electron .",
     "electron:dev": "cd client && npx vite build && cd .. && electron .",
     "electron:build": "cd client && npx vite build && cd .. && electron-builder --win portable --config.win.signAndEditExecutable=false",

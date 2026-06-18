@@ -1,8 +1,9 @@
-import React, { useState, useCallback, useRef, useEffect } from "react";
+import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import Sidebar from "./components/Sidebar";
 import ChatWindow from "./components/ChatWindow";
 import AddFriend from "./components/AddFriend";
 import CommandPalette from "./components/CommandPalette";
+import AIChat from "./components/AIChat";
 
 const WS_BASE = () => {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -33,6 +34,9 @@ export default function App() {
   const [showAdd, setShowAdd] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showAI, setShowAI] = useState(false);
+  const [terminalSelection, setTerminalSelection] = useState(null);
+  const [aiSelectionKey, setAiSelectionKey] = useState(0);
   const [openFolders, setOpenFolders] = useState(new Map()); // 存储打开的文件夹
   const [groups, setGroups] = useState(() => {
     try {
@@ -41,10 +45,23 @@ export default function App() {
       return {};
     }
   });
+  const [sessionOrder, setSessionOrder] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("chatmux-order") || "[]");
+    } catch {
+      return [];
+    }
+  });
 
   const wsMapRef = useRef(new Map());
   const writerMapRef = useRef(new Map());
   const attachSessionRef = useRef(null);
+
+  // 用 ref 缓存频繁变化的状态，避免 useCallback 闭包依赖导致重建
+  const sessionsRef = useRef(sessions);
+  useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
+  const activeIdRef = useRef(activeId);
+  useEffect(() => { activeIdRef.current = activeId; }, [activeId]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -60,6 +77,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("chatmux-groups", JSON.stringify(groups));
   }, [groups]);
+
+  useEffect(() => {
+    localStorage.setItem("chatmux-order", JSON.stringify(sessionOrder));
+  }, [sessionOrder]);
 
   const initRef = useRef(false);
   useEffect(() => {
@@ -83,6 +104,20 @@ export default function App() {
               ws: null,
             };
           }
+          // 桌面类型
+          if (s.type === "desktop" || s.command === "__desktop__") {
+            return {
+              id: s.id,
+              command: "__desktop__",
+              label: s.label || "远程桌面",
+              args: [],
+              cwd: s.cwd,
+              type: "desktop",
+              group: groups[s.id] || "",
+              alive: s.alive || false,
+              ws: null,
+            };
+          }
           // 终端类型
           return {
             id: s.id,
@@ -100,6 +135,7 @@ export default function App() {
         if (restored.length > 0) {
           const firstId = restored[0].id;
           setActiveId(firstId);
+          activeIdRef.current = firstId;
           // 文件夹类型不需要 attach
           const firstSession = restored[0];
           if (firstSession.type !== "folder" && firstSession.command !== "__folder__") {
@@ -155,10 +191,11 @@ export default function App() {
 
   const handleSelect = useCallback((id) => {
     setActiveId(id);
+    activeIdRef.current = id;
     setSidebarOpen(false);
-    const s = sessions.find((x) => x.id === id);
-    // 文件夹类型不需要 attach
-    if (s && s.type !== "folder" && s.command !== "__folder__") {
+    const s = sessionsRef.current.find((x) => x.id === id);
+    // 文件夹和桌面类型不需要 attach
+    if (s && s.type !== "folder" && s.type !== "desktop" && s.command !== "__folder__") {
       // 如果没有 WebSocket 连接，或者连接已关闭，重新连接
       const ws = wsMapRef.current.get(id);
       if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -169,30 +206,70 @@ export default function App() {
         attachSession(id);
       }
     }
-  }, [sessions, attachSession]);
+  }, [attachSession]);
 
   useEffect(() => {
     if (sessions.length === 0) {
-      if (activeId !== null) setActiveId(null);
+      if (activeId !== null) { setActiveId(null); activeIdRef.current = null; }
       return;
     }
     if (!activeId || !sessions.some((s) => s.id === activeId)) {
-      setActiveId(sessions[0].id);
+      const newId = sessions[0].id;
+      setActiveId(newId);
+      activeIdRef.current = newId;
     }
   }, [activeId, sessions]);
 
   useEffect(() => {
     if (!activeId) return;
-    const s = sessions.find((x) => x.id === activeId);
+    const s = sessionsRef.current.find((x) => x.id === activeId);
     if (!s || s.type === "folder" || s.command === "__folder__") return;
     const ws = wsMapRef.current.get(activeId);
     if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
       if (ws) wsMapRef.current.delete(activeId);
       attachSession(activeId);
     }
-  }, [activeId, sessions, attachSession]);
+  }, [activeId, attachSession]);
 
   const handleAdd = useCallback((command, args = [], cwd = null) => {
+    // 处理桌面类型
+    if (command === "__desktop__") {
+      const params = new URLSearchParams({
+        action: "create",
+        sessionType: "desktop",
+        command: "__desktop__",
+        width: "1280",
+        height: "800",
+      });
+      const ws = new WebSocket(`${WS_BASE()}?${params}`);
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === "created") {
+            setSessions((prev) => [...prev, {
+              id: msg.sessionId,
+              command: "__desktop__",
+              label: "远程桌面",
+              args: [],
+              cwd: "~",
+              type: "desktop",
+              group: "",
+              alive: true,
+              ws: null,
+            }]);
+            setActiveId(msg.sessionId);
+            activeIdRef.current = msg.sessionId;
+            setShowAdd(false);
+            setShowPalette(false);
+            setSidebarOpen(false);
+            ws.close();
+          }
+        } catch {}
+      };
+      ws.onclose = () => {};
+      return;
+    }
+
     // 处理文件夹类型 - 通过服务器 API 创建以实现多端同步
     if (command === "__folder__") {
       const folderPath = cwd || "~";
@@ -223,6 +300,7 @@ export default function App() {
               ws: null,
             }]);
             setActiveId(msg.sessionId);
+            activeIdRef.current = msg.sessionId;
             setShowAdd(false);
             setShowPalette(false);
             setSidebarOpen(false);
@@ -243,6 +321,7 @@ export default function App() {
           case "created":
             setSessions((prev) => [...prev, { id: msg.sessionId, command: msg.command, label: msg.command, args, cwd, group: "", alive: true, ws }]);
             setActiveId(msg.sessionId);
+            activeIdRef.current = msg.sessionId;
             wsMapRef.current.set(msg.sessionId, ws);
             setShowAdd(false);
             setShowPalette(false);
@@ -271,27 +350,29 @@ export default function App() {
   }, []);
 
   const handleDelete = useCallback((id) => {
-    const fallbackId = pickFallbackSessionId(sessions, id);
-
-    // 处理文件夹类型的删除
-    if (id.startsWith("folder_")) {
-      setOpenFolders((prev) => {
-        const next = new Map(prev);
-        next.delete(id);
-        return next;
-      });
-      setSessions((prev) => prev.filter((s) => s.id !== id));
-      setActiveId((current) => (current === id ? fallbackId : current));
-      return;
-    }
+    const fallbackId = pickFallbackSessionId(sessionsRef.current, id);
 
     const ws = wsMapRef.current.get(id);
     if (ws) { ws.close(); wsMapRef.current.delete(id); }
     writerMapRef.current.delete(id);
+
+    // 桌面会话需要停止 VNC
+    const session = sessionsRef.current.find(s => s.id === id);
+    if (session?.type === "desktop") {
+      fetch("/api/desktop/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: id }),
+      }).catch(() => {});
+    }
+
     fetch(`/api/sessions/${id}`, { method: "DELETE" }).catch(() => {});
     setSessions((prev) => prev.filter((s) => s.id !== id));
-    setActiveId((current) => (current === id ? fallbackId : current));
-  }, [sessions]);
+    setActiveId((current) => {
+      if (current === id) { activeIdRef.current = fallbackId; return fallbackId; }
+      return current;
+    });
+  }, []);
 
   const handleRename = useCallback((id, label) => {
     setSessions((prev) => prev.map((s) => s.id === id ? { ...s, label } : s));
@@ -303,24 +384,57 @@ export default function App() {
     setGroups((prev) => ({ ...prev, [id]: group }));
   }, []);
 
+  const handleReorder = useCallback((newOrder) => {
+    setSessionOrder(newOrder);
+  }, []);
+
   const handleReconnect = useCallback((id) => { attachSession(id); }, [attachSession]);
 
   const sendInput = useCallback((data) => {
-    if (!activeId) return;
-    const ws = wsMapRef.current.get(activeId);
+    const aid = activeIdRef.current;
+    if (!aid) return;
+    const ws = wsMapRef.current.get(aid);
     if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "input", data }));
-  }, [activeId]);
+  }, []);
 
   const sendResize = useCallback((cols, rows) => {
-    if (!activeId) return;
-    const ws = wsMapRef.current.get(activeId);
+    const aid = activeIdRef.current;
+    if (!aid) return;
+    const ws = wsMapRef.current.get(aid);
     if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "resize", cols, rows }));
-  }, [activeId]);
+  }, []);
 
   const registerWriter = useCallback((sessionId, writer) => {
     writerMapRef.current.set(sessionId, writer);
     return () => writerMapRef.current.delete(sessionId);
   }, []);
+
+  // 应用自定义排序
+  const orderedSessions = useMemo(() => {
+    if (sessionOrder.length === 0) return sessions;
+    const orderMap = new Map(sessionOrder.map((id, i) => [id, i]));
+    return [...sessions].sort((a, b) => {
+      const ia = orderMap.has(a.id) ? orderMap.get(a.id) : Infinity;
+      const ib = orderMap.has(b.id) ? orderMap.get(b.id) : Infinity;
+      return ia - ib;
+    });
+  }, [sessions, sessionOrder]);
+
+  // 同步排序：新会话加入排序列表
+  useEffect(() => {
+    if (sessions.length === 0) return;
+    const ids = sessions.map(s => s.id);
+    const known = new Set(sessionOrder);
+    const newIds = ids.filter(id => !known.has(id));
+    if (newIds.length > 0) {
+      setSessionOrder(prev => [...prev, ...newIds]);
+    }
+    // 清理已删除的会话
+    const currentSet = new Set(ids);
+    if (sessionOrder.some(id => !currentSet.has(id))) {
+      setSessionOrder(prev => prev.filter(id => currentSet.has(id)));
+    }
+  }, [sessions]);
 
   const activeSession = sessions.find((s) => s.id === activeId);
 
@@ -341,13 +455,14 @@ export default function App() {
         {sidebarOpen && <div style={mStyles.overlay} onClick={() => setSidebarOpen(false)} />}
         <div style={{ ...mStyles.drawer, ...(sidebarOpen ? mStyles.drawerOpen : {}) }}>
           <Sidebar
-            sessions={sessions}
+            sessions={orderedSessions}
             activeId={activeId}
             onSelect={handleSelect}
             onAdd={() => { setShowAdd(true); setSidebarOpen(false); }}
             onDelete={handleDelete}
             onRename={handleRename}
             onGroupChange={handleGroupChange}
+            onReorder={handleReorder}
           />
         </div>
 
@@ -376,13 +491,14 @@ export default function App() {
   return (
     <div style={styles.app}>
       <Sidebar
-        sessions={sessions}
+        sessions={orderedSessions}
         activeId={activeId}
         onSelect={handleSelect}
         onAdd={() => setShowAdd(true)}
         onDelete={handleDelete}
         onRename={handleRename}
         onGroupChange={handleGroupChange}
+        onReorder={handleReorder}
       />
       <ChatWindow
         sessions={sessions}
@@ -393,7 +509,19 @@ export default function App() {
         onReconnect={handleReconnect}
         onAddSession={handleAdd}
         onDeleteSession={handleDelete}
+        showAI={showAI}
+        onToggleAI={() => setShowAI(!showAI)}
+        onAskAI={(text) => { setTerminalSelection(text); setAiSelectionKey(k => k + 1); setShowAI(true); }}
       />
+      {showAI && (
+        <AIChat
+          key={aiSelectionKey}
+          onClose={() => setShowAI(false)}
+          terminalSelection={terminalSelection}
+          sendInput={sendInput}
+          activeId={activeId}
+        />
+      )}
       {showAdd && <AddFriend onAdd={handleAdd} onClose={() => setShowAdd(false)} />}
       {showPalette && <CommandPalette sessions={sessions} onAdd={handleAdd} onSelect={handleSelect} onClose={() => setShowPalette(false)} />}
     </div>
